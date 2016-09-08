@@ -1,9 +1,9 @@
 package uk.gov.justice.services.eventsourcing.repository.core;
 
 
-import uk.gov.justice.services.eventsourcing.common.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.common.exception.InvalidSequenceIdException;
-import uk.gov.justice.services.eventsourcing.common.snapshot.AggregateSnapshot;
+import uk.gov.justice.domain.snapshot.AggregateSnapshot;
+import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
+import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -30,4 +30,11 @@ public interface SnapshotRepository {
     Optional<AggregateSnapshot> getLatestSnapshot(final UUID streamId);
 
 
+    /**
+     * Get an Optional Aggregate Snapshot.
+     *
+     * @param streamId the id of the stream to retrieve
+     * @return the Optional<AggregateSnapshot>. Never returns null.
+     */
+    Optional<AggregateSnapshot> getEarlierSnapshot(final UUID streamId, final long versionId);
 }

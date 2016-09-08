@@ -11,6 +11,7 @@ import static uk.gov.justice.services.messaging.JsonObjectMetadata.metadataWithR
 
 import uk.gov.justice.services.core.aggregate.AggregateService;
 import uk.gov.justice.services.core.enveloper.Enveloper;
+import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
 import uk.gov.justice.services.eventsourcing.source.core.EventSource;
 import uk.gov.justice.services.eventsourcing.source.core.EventStream;
 import uk.gov.justice.services.example.cakeshop.domain.aggregate.Recipe;
@@ -64,7 +65,7 @@ public class AddRecipeCommandHandlerTest {
     private AddRecipeCommandHandler addRecipeCommandHandler;
 
     @Test
-    public void shouldHandleAddRecipeCommand() throws Exception {
+    public void shouldHandleAddRecipeCommand() throws Exception, DuplicateSnapshotException {
         final JsonEnvelope command = envelope()
                 .with(metadataWithRandomUUID(EVENT_NAME))
                 .withPayloadOf(RECIPE_ID.toString(), "recipeId")
@@ -79,6 +80,7 @@ public class AddRecipeCommandHandlerTest {
         when(enveloper.withMetadataFrom(command)).thenReturn(x -> x.equals(event) ? envelope : null);
 
         addRecipeCommandHandler.addRecipe(command);
+
 
         verify(eventStream).append(streamCaptor.capture());
         assertThat(streamCaptor.getValue().collect(toList()), hasItems(envelope));

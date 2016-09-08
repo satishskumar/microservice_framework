@@ -3,10 +3,11 @@ package uk.gov.justice.services.eventsourcing.repository.jdbc.snapshot;
 
 import static java.lang.String.format;
 
-import uk.gov.justice.services.eventsourcing.common.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.common.exception.InvalidSequenceIdException;
-import uk.gov.justice.services.eventsourcing.common.snapshot.AggregateSnapshot;
+import uk.gov.justice.domain.aggregate.Aggregate;
+import uk.gov.justice.domain.snapshot.AggregateSnapshot;
 import uk.gov.justice.services.eventsourcing.repository.core.SnapshotRepository;
+import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
+import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 import uk.gov.justice.services.jdbc.persistence.AbstractJdbcRepository;
 import uk.gov.justice.services.jdbc.persistence.JdbcRepositoryException;
 
@@ -29,17 +30,19 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
      * Column Names
      */
     static final String COL_STREAM_ID = "stream_id";
-    static final String COL_SEQUENCE_ID = "sequence_id";
+    static final String COL_VERSION_ID = "version_id";
     static final String COL_TYPE = "type";
     static final String COL_AGGREGATE = "aggregate";
 
     /**
      * Statements
      */
-    static final String SQL_FIND_LATEST_BY_STREAM_ID = "SELECT * FROM snapshot WHERE stream_id=? ORDER BY sequence_id DESC";
-    static final String SQL_INSERT_EVENT_LOG = "INSERT INTO snapshot (stream_id, sequence_id, type, aggregate ) VALUES(?, ?, ?, ?)";
+    static final String SQL_FIND_LATEST_BY_STREAM_ID = "SELECT * FROM snapshot WHERE stream_id=? ORDER BY version_id DESC";
+    static final String SQL_FIND_EARLIER_SNAPSHOT_BY_STREAM_ID_AND_VERSION_ID = "select * from snapshot where version_id = (SELECT version_id FROM snapshot WHERE stream_id=? and version_id < ? ORDER BY version_id DESC LIMIT 1)";
 
-    private static final String READING_STREAM_EXCEPTION = "Exception while reading stream %s";
+    static final String SQL_INSERT_EVENT_LOG = "INSERT INTO snapshot (stream_id, version_id, type, aggregate ) VALUES(?, ?, ?, ?)";
+
+    protected static final String READING_STREAM_EXCEPTION = "Exception while reading stream %s";
     private static final String JNDI_DS_EVENT_STORE_PATTERN = "java:/app/%s/DS.eventstore";
 
 
@@ -50,22 +53,23 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
      * @throws DuplicateSnapshotException if the version already exists or is null.
      */
     @Override
-    public void storeSnapshot(final AggregateSnapshot aggregateSnapshot) throws DuplicateSnapshotException, InvalidSequenceIdException {
+    public void storeSnapshot(final AggregateSnapshot aggregateSnapshot)
+            throws DuplicateSnapshotException, InvalidSequenceIdException {
 
-        if (aggregateSnapshot.getSequenceId() == null) {
+        if (aggregateSnapshot.getVersionId() == null) {
             throw new InvalidSequenceIdException(format("Version is null for stream %s", aggregateSnapshot.getStreamId()));
         }
 
         try (Connection connection = getDataSource().getConnection();
              PreparedStatement ps = connection.prepareStatement(SQL_INSERT_EVENT_LOG)) {
             ps.setObject(1, aggregateSnapshot.getStreamId());
-            ps.setLong(2, aggregateSnapshot.getSequenceId());
-            ps.setString(3, aggregateSnapshot.getType());
-            ps.setBytes(4, aggregateSnapshot.getAggregate());
+            ps.setLong(2, aggregateSnapshot.getVersionId());
+            ps.setObject(3, aggregateSnapshot.getType());
+            ps.setBytes(4, aggregateSnapshot.getAggregateByteRepresentation());
             ps.executeUpdate();
         } catch (SQLException | NamingException e) {
             throw new JdbcRepositoryException(format("Exception while storing sequence %s of stream %s",
-                    aggregateSnapshot.getSequenceId(), aggregateSnapshot.getStreamId()), e);
+                    aggregateSnapshot.getVersionId(), aggregateSnapshot.getStreamId()), e);
         }
     }
 
@@ -90,6 +94,22 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
         }
     }
 
+    @Override
+    public Optional<AggregateSnapshot> getEarlierSnapshot(UUID streamId, long versionId) {
+
+        try (final Connection connection = getDataSource().getConnection();
+             final PreparedStatement preparedStatement = connection.prepareStatement(SQL_FIND_EARLIER_SNAPSHOT_BY_STREAM_ID_AND_VERSION_ID)) {
+
+            preparedStatement.setObject(1, streamId);
+            preparedStatement.setLong(2, versionId);
+
+            return extractResults(preparedStatement);
+
+        } catch (SQLException | NamingException e) {
+            throw new JdbcRepositoryException(format(READING_STREAM_EXCEPTION, streamId), e);
+        }
+    }
+
     protected Optional<AggregateSnapshot> extractResults(final PreparedStatement preparedStatement) throws SQLException {
 
         try (final ResultSet resultSet = preparedStatement.executeQuery()) {
@@ -105,8 +125,8 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
 
         return Optional.of(new AggregateSnapshot(
                 (UUID) resultSet.getObject(COL_STREAM_ID),
-                resultSet.getLong(COL_SEQUENCE_ID),
-                resultSet.getString(COL_TYPE),
+                resultSet.getLong(COL_VERSION_ID),
+                (Class<? extends Aggregate>) resultSet.getObject(COL_TYPE),
                 resultSet.getBytes(COL_AGGREGATE)));
     }
 

@@ -79,3 +79,9 @@ Thumbs.db
 /core/conf/login.config
 /core/conf/openejb.xml
 /core/conf/users.properties
+
+/components/command/command-handler/conf/groups.properties
+/components/command/command-handler/conf/login.config
+/components/command/command-handler/conf/openejb.xml
+/components/command/command-handler/conf/users.properties
+

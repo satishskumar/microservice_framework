@@ -2,14 +2,10 @@ package uk.gov.justice.services.core.aggregate;
 
 import static java.util.UUID.randomUUID;
 import static org.hamcrest.MatcherAssert.assertThat;
-import static org.hamcrest.Matchers.equalTo;
-import static org.hamcrest.Matchers.hasSize;
-import static org.hamcrest.collection.IsEmptyCollection.empty;
-import static org.hamcrest.core.IsNull.notNullValue;
-import static org.mockito.Mockito.mock;
+import static org.hamcrest.Matchers.hasItems;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
-import static uk.gov.justice.services.messaging.DefaultJsonEnvelope.envelopeFrom;
+import static uk.gov.justice.services.messaging.DefaultJsonEnvelope.envelope;
 import static uk.gov.justice.services.messaging.JsonObjectMetadata.metadataWithRandomUUID;
 
 import uk.gov.justice.domain.aggregate.Aggregate;
@@ -17,6 +13,9 @@ import uk.gov.justice.domain.annotation.Event;
 import uk.gov.justice.services.common.converter.JsonObjectToObjectConverter;
 import uk.gov.justice.services.core.extension.EventFoundEvent;
 import uk.gov.justice.services.eventsourcing.source.core.EventStream;
+import uk.gov.justice.services.eventsourcing.source.core.snapshot.SnapshotService;
+import uk.gov.justice.services.eventsourcing.source.core.snapshot.VersionedAggregate;
+import uk.gov.justice.services.messaging.JsonEnvelope;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -40,6 +39,8 @@ public class AggregateServiceTest {
 
     private static final UUID STREAM_ID = randomUUID();
 
+    private TestAggregate testAggregate = new TestAggregate();
+
     @Mock
     private Logger logger;
 
@@ -49,107 +50,74 @@ public class AggregateServiceTest {
     @Mock
     private EventStream eventStream;
 
+    @Mock
+    private SnapshotService snapshotService;
+
+
     @InjectMocks
     private AggregateService aggregateService;
 
-    @Test
-    public void shouldCreateAggregateFromEmptyStream() {
-        when(eventStream.read()).thenReturn(Stream.empty());
-        when(eventStream.getId()).thenReturn(STREAM_ID);
+    private void registerEvent(Class clazz, String name) {
+        aggregateService.register(new EventFoundEvent(clazz, name));
+    }
 
-        RecordingAggregate aggregate = aggregateService.get(eventStream, RecordingAggregate.class);
-
-        assertThat(aggregate, notNullValue());
-        assertThat(aggregate.recordedEvents, empty());
-        verify(logger).trace("Recreating aggregate for instance {} of aggregate type {}", STREAM_ID, RecordingAggregate.class);
+    private <T> void buildWhenEvent(Class<T> clazz, JsonObject jsonObject, T event) {
+        when(jsonObjectToObjectConverter.convert(jsonObject, clazz)).thenReturn(event);
     }
 
     @Test
-    public void shouldCreateAggregateFromSingletonStream() {
-        JsonObject eventPayloadA = mock(JsonObject.class);
-        EventA eventA = mock(EventA.class);
-        when(jsonObjectToObjectConverter.convert(eventPayloadA, EventA.class)).thenReturn(eventA);
-        when(eventStream.read()).thenReturn(Stream.of(envelopeFrom(metadataWithRandomUUID("eventA"), eventPayloadA)));
-        when(eventStream.getId()).thenReturn(STREAM_ID);
+    public void shouldAttemptStoringSnapshot() throws Exception {
 
-        aggregateService.register(new EventFoundEvent(EventA.class, "eventA"));
+        final UUID streamId = UUID.randomUUID();
+        final long currentStreamVersion = 3l;
+        final TestAggregate aggregate = new TestAggregate();
+        final long snapshotVersion = 1l;
 
-        RecordingAggregate aggregate = aggregateService.get(eventStream, RecordingAggregate.class);
+        when(eventStream.getId()).thenReturn(streamId);
+        when(eventStream.getCurrentVersion()).thenReturn(currentStreamVersion);
+        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class)).thenReturn(new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
+        when(eventStream.readFrom(snapshotVersion)).thenReturn(Stream.empty());
 
-        assertThat(aggregate, notNullValue());
-        assertThat(aggregate.recordedEvents, hasSize(1));
-        assertThat(aggregate.recordedEvents.get(0), equalTo(eventA));
-        verify(logger).info("Registering event {}, {} with AggregateService", "eventA" , EventA.class);
-        verify(logger).trace("Recreating aggregate for instance {} of aggregate type {}", STREAM_ID, RecordingAggregate.class);
+        aggregateService.get(eventStream, TestAggregate.class);
+
+        verify(snapshotService).attemptAggregateStore(streamId, currentStreamVersion, TestAggregate.class, aggregate, snapshotVersion);
     }
+
 
     @Test
-    public void shouldCreateAggregateFromStreamOfTwo() {
-        JsonObject eventPayloadA = mock(JsonObject.class);
-        JsonObject eventPayloadB = mock(JsonObject.class);
-        EventA eventA = mock(EventA.class);
-        EventB eventB = mock(EventB.class);
-        when(jsonObjectToObjectConverter.convert(eventPayloadA, EventA.class)).thenReturn(eventA);
-        when(jsonObjectToObjectConverter.convert(eventPayloadB, EventB.class)).thenReturn(eventB);
-        when(eventStream.read()).thenReturn(Stream.of(
-                envelopeFrom(metadataWithRandomUUID("eventA"), eventPayloadA),
-                envelopeFrom(metadataWithRandomUUID("eventB"), eventPayloadB)));
-        when(eventStream.getId()).thenReturn(STREAM_ID);
+    public void shouldReplayDeltaOfEventsOnAggregate() throws Exception {
+        final UUID streamId = UUID.randomUUID();
+        final long currentStreamVersion = 5l;
+        final TestAggregate aggregate = new TestAggregate();
+        final long snapshotVersion = 2l;
 
-        aggregateService.register(new EventFoundEvent(EventA.class, "eventA"));
-        aggregateService.register(new EventFoundEvent(EventB.class, "eventB"));
+        final JsonEnvelope jsonEventA = envelope().with(metadataWithRandomUUID("eventA")).withPayloadOf("value1", "name1").build();
+        final JsonEnvelope jsonEventB = envelope().with(metadataWithRandomUUID("eventB")).withPayloadOf("value2", "name1").build();
+        final JsonEnvelope jsonEventC = envelope().with(metadataWithRandomUUID("eventC")).withPayloadOf("value3", "name1").build();
 
-        RecordingAggregate aggregate = aggregateService.get(eventStream, RecordingAggregate.class);
+        registerEvent(EventA.class, "eventA");
+        registerEvent(EventB.class, "eventB");
+        registerEvent(EventC.class, "eventC");
 
-        assertThat(aggregate, notNullValue());
-        assertThat(aggregate.recordedEvents, hasSize(2));
-        assertThat(aggregate.recordedEvents.get(0), equalTo(eventA));
-        assertThat(aggregate.recordedEvents.get(1), equalTo(eventB));
-        verify(logger).info("Registering event {}, {} with AggregateService", "eventA" , EventA.class);
-        verify(logger).info("Registering event {}, {} with AggregateService", "eventB" , EventB.class);
-        verify(logger).trace("Recreating aggregate for instance {} of aggregate type {}", STREAM_ID, RecordingAggregate.class);
+        final EventA eventA = new EventA();
+        final EventB eventB = new EventB();
+        final EventC eventC = new EventC();
+
+        when(eventStream.getId()).thenReturn(streamId);
+        when(eventStream.getCurrentVersion()).thenReturn(currentStreamVersion);
+        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class)).thenReturn(new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
+        when(eventStream.readFrom(snapshotVersion)).thenReturn(Stream.of(jsonEventA, jsonEventB, jsonEventC));
+
+
+        when(jsonObjectToObjectConverter.convert(jsonEventA.payloadAsJsonObject(), EventA.class)).thenReturn(eventA);
+        when(jsonObjectToObjectConverter.convert(jsonEventB.payloadAsJsonObject(), EventB.class)).thenReturn(eventB);
+        when(jsonObjectToObjectConverter.convert(jsonEventC.payloadAsJsonObject(), EventC.class)).thenReturn(eventC);
+
+        aggregateService.get(eventStream, TestAggregate.class);
+
+        assertThat(aggregate.repliedEvents, hasItems(eventA, eventB, eventC));
     }
 
-    @Test(expected = IllegalStateException.class)
-    public void shouldThrowExceptionForUnregisteredEvent() {
-        JsonObject eventPayloadA = mock(JsonObject.class);
-        EventA eventA = mock(EventA.class);
-        when(jsonObjectToObjectConverter.convert(eventPayloadA, EventA.class)).thenReturn(eventA);
-        when(eventStream.read()).thenReturn(Stream.of(envelopeFrom(metadataWithRandomUUID("eventA"), eventPayloadA)));
-
-        aggregateService.get(eventStream, RecordingAggregate.class);
-    }
-
-    @Test(expected = RuntimeException.class)
-    public void shouldThrowExceptionForNonInstantiatableEvent() {
-        JsonObject eventPayloadA = mock(JsonObject.class);
-        EventA eventA = mock(EventA.class);
-        when(jsonObjectToObjectConverter.convert(eventPayloadA, EventA.class)).thenReturn(eventA);
-        when(eventStream.read()).thenReturn(Stream.of(envelopeFrom(metadataWithRandomUUID("eventA"), eventPayloadA)));
-
-        aggregateService.register(new EventFoundEvent(EventA.class, "eventA"));
-
-        aggregateService.get(eventStream, PrivateAggregate.class);
-    }
-
-    public static class RecordingAggregate implements Aggregate {
-
-        List<Object> recordedEvents = new ArrayList<>();
-
-        @Override
-        public Object apply(Object event) {
-            recordedEvents.add(event);
-            return event;
-        }
-    }
-
-    private static class PrivateAggregate implements Aggregate {
-
-        @Override
-        public Object apply(Object event) {
-            return event;
-        }
-    }
 
     @Event("eventA")
     public static class EventA {
@@ -160,4 +128,23 @@ public class AggregateServiceTest {
     public static class EventB {
 
     }
+
+    @Event("eventC")
+    public static class EventC {
+
+    }
+
+
+    private class TestAggregate implements Aggregate {
+        private static final long serialVersionUID = 42L;
+
+        public List<Object> repliedEvents = new ArrayList<>();
+
+        @Override
+        public Object apply(Object event) {
+            repliedEvents.add(event);
+            return event;
+        }
+    }
+
 }
