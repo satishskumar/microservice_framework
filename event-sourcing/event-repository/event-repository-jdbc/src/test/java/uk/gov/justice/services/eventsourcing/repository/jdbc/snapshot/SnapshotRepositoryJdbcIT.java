@@ -1,17 +1,12 @@
 package uk.gov.justice.services.eventsourcing.repository.jdbc.snapshot;
 
 import static java.util.UUID.randomUUID;
-import static org.hamcrest.CoreMatchers.containsString;
 import static org.hamcrest.CoreMatchers.is;
-import static org.hamcrest.CoreMatchers.isA;
 import static org.hamcrest.CoreMatchers.notNullValue;
 import static org.junit.Assert.assertThat;
 
 import uk.gov.justice.domain.aggregate.Aggregate;
 import uk.gov.justice.domain.snapshot.AggregateSnapshot;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
-import uk.gov.justice.services.jdbc.persistence.JdbcRepositoryException;
 import uk.gov.justice.services.test.utils.persistence.AbstractJdbcRepositoryIT;
 
 import java.util.ArrayList;
@@ -36,6 +31,7 @@ public class SnapshotRepositoryJdbcIT extends AbstractJdbcRepositoryIT<SnapshotJ
             return event;
         }
     }
+
     @Rule
     public ExpectedException expectedException = ExpectedException.none();
 
@@ -57,7 +53,7 @@ public class SnapshotRepositoryJdbcIT extends AbstractJdbcRepositoryIT<SnapshotJ
     }
 
     @Test
-    public void shouldStoreAndRetrieveSnapshot() throws DuplicateSnapshotException, InvalidSequenceIdException {
+    public void shouldStoreAndRetrieveSnapshot() {
 
         AggregateSnapshot aggregateSnapshot = createSnapshot(STREAM_ID, VERSION_ID, TYPE, AGGREGATE);
 
@@ -70,7 +66,7 @@ public class SnapshotRepositoryJdbcIT extends AbstractJdbcRepositoryIT<SnapshotJ
     }
 
     @Test
-    public void shouldRetrieveLatestSnapshot() throws DuplicateSnapshotException, InvalidSequenceIdException {
+    public void shouldRetrieveLatestSnapshot() {
 
         AggregateSnapshot aggregateSnapshot1 = createSnapshot(STREAM_ID, VERSION_ID + 1, TYPE, AGGREGATE);
         AggregateSnapshot aggregateSnapshot2 = createSnapshot(STREAM_ID, VERSION_ID + 2, TYPE, AGGREGATE);
@@ -90,8 +86,9 @@ public class SnapshotRepositoryJdbcIT extends AbstractJdbcRepositoryIT<SnapshotJ
         assertThat(snapshot, is(Optional.of(aggregateSnapshot5)));
     }
 
+
     @Test
-    public void shouldRetrieveEarlierSnapshot() throws DuplicateSnapshotException, InvalidSequenceIdException {
+    public void shouldRemoveAllSnapshots() {
 
         AggregateSnapshot aggregateSnapshot1 = createSnapshot(STREAM_ID, VERSION_ID + 1, TYPE, AGGREGATE);
         AggregateSnapshot aggregateSnapshot2 = createSnapshot(STREAM_ID, VERSION_ID + 2, TYPE, AGGREGATE);
@@ -105,42 +102,19 @@ public class SnapshotRepositoryJdbcIT extends AbstractJdbcRepositoryIT<SnapshotJ
         jdbcRepository.storeSnapshot(aggregateSnapshot4);
         jdbcRepository.storeSnapshot(aggregateSnapshot5);
 
-        Optional<AggregateSnapshot> snapshot = jdbcRepository.getEarlierSnapshot(STREAM_ID,11);
+        jdbcRepository.removeAllSnapshots(STREAM_ID, TYPE);
 
-        assertThat(snapshot, notNullValue());
-        assertThat(snapshot, is(Optional.of(aggregateSnapshot4)));
+        Optional<AggregateSnapshot> snapshots = jdbcRepository.getLatestSnapshot(STREAM_ID);
+
+        assertThat(snapshots, notNullValue());
+        assertThat(snapshots.isPresent(), is(false));
     }
 
-
     @Test
-    public void shouldReturnOptionalNullIfNoSnapshotAvailable() throws InvalidSequenceIdException {
-
+    public void shouldReturnOptionalNullIfNoSnapshotAvailable() {
         Optional<AggregateSnapshot> snapshot = jdbcRepository.getLatestSnapshot(STREAM_ID);
 
         assertThat(snapshot.isPresent(), is(false));
-    }
-
-    @Test
-    public void shouldThrowDuplicateSnapshotException() throws DuplicateSnapshotException, InvalidSequenceIdException {
-        expectedException.expect(isA(JdbcRepositoryException.class));
-        expectedException.expectMessage(containsString("Exception while storing sequence"));
-
-        AggregateSnapshot aggregateSnapshot = createSnapshot(STREAM_ID, VERSION_ID + 1, TYPE, AGGREGATE);
-
-        jdbcRepository.storeSnapshot(aggregateSnapshot);
-        jdbcRepository.storeSnapshot(aggregateSnapshot);
-
-        jdbcRepository.getLatestSnapshot(STREAM_ID);
-    }
-
-    @Test
-    public void shouldThrowInvalidSequenceIdException() throws DuplicateSnapshotException, InvalidSequenceIdException {
-        expectedException.expect(InvalidSequenceIdException.class);
-        expectedException.expectMessage("Version is null for stream " + STREAM_ID);
-
-        AggregateSnapshot aggregateSnapshot1 = createSnapshot(STREAM_ID, null, TYPE, AGGREGATE);
-
-        jdbcRepository.storeSnapshot(aggregateSnapshot1);
     }
 
     private <T extends Aggregate> AggregateSnapshot createSnapshot(final UUID streamId, final Long sequenceId, Class<T> type, byte[] aggregate) {

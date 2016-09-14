@@ -1,9 +1,8 @@
 package uk.gov.justice.services.eventsourcing.repository.core;
 
 
+import uk.gov.justice.domain.aggregate.Aggregate;
 import uk.gov.justice.domain.snapshot.AggregateSnapshot;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 
 import java.util.Optional;
 import java.util.UUID;
@@ -18,11 +17,10 @@ public interface SnapshotRepository {
      *
      * @param AggregateSnapshot aggregateSnapshot
      */
-    void storeSnapshot(final AggregateSnapshot AggregateSnapshot)
-            throws DuplicateSnapshotException, InvalidSequenceIdException;
+    void storeSnapshot(final AggregateSnapshot AggregateSnapshot);
 
     /**
-     * Get an Optional Aggregate Snapshot.
+     * Get an Optional Latest Aggregate Snapshot.
      *
      * @param streamId the id of the stream to retrieve
      * @return the Optional<AggregateSnapshot>. Never returns null.
@@ -31,10 +29,11 @@ public interface SnapshotRepository {
 
 
     /**
-     * Get an Optional Aggregate Snapshot.
+     * deletes all snapshots.
      *
+     * @param <T>      the type parameter
      * @param streamId the id of the stream to retrieve
-     * @return the Optional<AggregateSnapshot>. Never returns null.
+     * @param clazz    the clazz
      */
-    Optional<AggregateSnapshot> getEarlierSnapshot(final UUID streamId, final long versionId);
+    <T extends Aggregate> void removeAllSnapshots(UUID streamId, Class<T> clazz);
 }

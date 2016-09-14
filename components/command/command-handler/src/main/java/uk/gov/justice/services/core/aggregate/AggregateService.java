@@ -3,10 +3,11 @@ package uk.gov.justice.services.core.aggregate;
 import static java.lang.String.format;
 
 import uk.gov.justice.domain.aggregate.Aggregate;
+import uk.gov.justice.domain.snapshot.AggregateChangeDetectedException;
+import uk.gov.justice.domain.snapshot.DefaultObjectInputStreamStrategy;
+import uk.gov.justice.domain.snapshot.ObjectInputStreamStrategy;
 import uk.gov.justice.services.common.converter.JsonObjectToObjectConverter;
 import uk.gov.justice.services.core.extension.EventFoundEvent;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 import uk.gov.justice.services.eventsourcing.source.core.EventStream;
 import uk.gov.justice.services.eventsourcing.source.core.snapshot.SnapshotService;
 import uk.gov.justice.services.eventsourcing.source.core.snapshot.VersionedAggregate;
@@ -38,41 +39,33 @@ public class AggregateService {
 
     private ConcurrentHashMap<String, Class<?>> eventMap = new ConcurrentHashMap<>();
 
+    private ObjectInputStreamStrategy objectInputStreamStrategy = new DefaultObjectInputStreamStrategy();
+
     /**
      * Recreate an aggregate of the specified type by replaying the events from an event stream.
      *
+     * @param <T>    the type parameter
      * @param stream the event stream to replay
      * @param clazz  the type of aggregate to recreate
      * @return the recreated aggregate
      */
-    public <T extends Aggregate>  T get(final EventStream stream,
-                 final Class<T> clazz)
-            throws DuplicateSnapshotException, InvalidSequenceIdException {
+    public <T extends Aggregate> T get(final EventStream stream,
+                                       final Class<T> clazz) {
 
         logger.trace("Recreating aggregate for instance {} of aggregate type {}", stream.getId(), clazz);
+        Stream<JsonEnvelope> filteredEvents = null;
+        VersionedAggregate<T> versionedAggregate = null;
+        try {
+            versionedAggregate = aggregateOf(stream, clazz, objectInputStreamStrategy);
+            filteredEvents = stream.readFrom(versionedAggregate.getVersionId());
 
-        VersionedAggregate<T> versionedAggregate = aggregateOf(stream, clazz);
-        final Long snapshotVersion = versionedAggregate.getVersionId();
-
-        T newAggregate = applyEvents(stream, versionedAggregate.getAggregate(), snapshotVersion);
-
-        snapshotService.attemptAggregateStore(stream.getId(), stream.getCurrentVersion(), clazz, newAggregate, snapshotVersion);
-
+        } catch (AggregateChangeDetectedException e) {
+            versionedAggregate = deleteAllSnapshotsAndMakeAggregateOf(stream, clazz);
+            filteredEvents = stream.read();
+        }
+        T newAggregate = applyEvents(filteredEvents, versionedAggregate.getAggregate());
+        snapshotService.attemptAggregateStore(stream.getId(), stream.getCurrentVersion(), clazz, newAggregate, versionedAggregate.getVersionId());
         return newAggregate;
-    }
-
-    private <T extends Aggregate>  T applyEvents(final EventStream stream,
-                          final T aggregate,
-                          final long recentVersionId) {
-        logger.trace("Apply Events for {}", stream, recentVersionId);
-
-        Stream<JsonEnvelope> filteredEvent = stream.readFrom(recentVersionId);
-        aggregate.apply(filteredEvent.map(this::convertEnvelopeToEvent));
-        return aggregate;
-    }
-
-    private <T extends Aggregate>  VersionedAggregate<T> aggregateOf(final EventStream stream, final Class<T> clazz) {
-        return snapshotService.getLatestVersionedAggregate(stream.getId(), clazz);
     }
 
 
@@ -92,5 +85,36 @@ public class AggregateService {
             throw new IllegalStateException(format("No event class registered for events of type %s", name));
         }
         return jsonObjectToObjectConverter.convert(event.payloadAsJsonObject(), eventMap.get(name));
+    }
+
+    /**
+     * Sets object input stream strategy.
+     *
+     * @param objectInputStreamStrategy the object input stream strategy
+     */
+    public void setObjectInputStreamStrategy(final ObjectInputStreamStrategy objectInputStreamStrategy) {
+        this.objectInputStreamStrategy = objectInputStreamStrategy;
+    }
+
+    private <T extends Aggregate> VersionedAggregate<T> deleteAllSnapshotsAndMakeAggregateOf(final EventStream stream,
+                                                                                             final Class<T> clazz) {
+        logger.trace("Deleting existing snapshots aggregate for instance {} of aggregate type {}", stream.getId(), clazz);
+
+        snapshotService.removeAllSnapshots(stream.getId(), clazz);
+        return snapshotService.getNewVersionedAggregate(clazz);
+    }
+
+    private <T extends Aggregate> T applyEvents(final Stream<JsonEnvelope> filteredEvent,
+                                                final T aggregate) {
+        logger.trace("Apply Events for {}", filteredEvent);
+        aggregate.apply(filteredEvent.map(this::convertEnvelopeToEvent));
+        return aggregate;
+    }
+
+    private <T extends Aggregate> VersionedAggregate<T> aggregateOf(final EventStream stream,
+                                                                    final Class<T> clazz,
+                                                                    final ObjectInputStreamStrategy streamStrategy)
+            throws AggregateChangeDetectedException {
+        return snapshotService.getLatestVersionedAggregate(stream.getId(), clazz, streamStrategy);
     }
 }

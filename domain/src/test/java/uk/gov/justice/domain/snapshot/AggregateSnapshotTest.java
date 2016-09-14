@@ -13,6 +13,7 @@ import org.junit.Test;
 
 
 public class AggregateSnapshotTest {
+    private final DefaultObjectInputStreamStrategy streamStrategy = new DefaultObjectInputStreamStrategy();
 
     @Test
     public void shouldCreateAnAggregateSnapshot() throws Exception {
@@ -42,7 +43,7 @@ public class AggregateSnapshotTest {
         assertThat(snapshot.getStreamId(), is(streamID));
         assertThat(snapshot.getVersionId(), is(versionId));
         assertThat(snapshot.getType(), equalTo(TestAggregate.class));
-        assertThat(snapshot.getAggregate(), is(aggregate));
+        assertThat(snapshot.getAggregate(streamStrategy), is(aggregate));
     }
 
 

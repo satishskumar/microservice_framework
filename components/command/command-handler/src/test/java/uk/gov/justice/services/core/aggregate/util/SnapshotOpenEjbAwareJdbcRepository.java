@@ -1,10 +1,7 @@
-package uk.gov.justice.services.core.aggregate;
+package uk.gov.justice.services.core.aggregate.util;
 
 import static java.lang.String.format;
 
-import uk.gov.justice.domain.snapshot.AggregateSnapshot;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 import uk.gov.justice.services.eventsourcing.repository.jdbc.snapshot.SnapshotJdbcRepository;
 import uk.gov.justice.services.jdbc.persistence.JdbcRepositoryException;
 
@@ -12,7 +9,6 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
-import java.util.Optional;
 import java.util.UUID;
 
 import javax.naming.NamingException;
@@ -27,7 +23,7 @@ public class SnapshotOpenEjbAwareJdbcRepository extends SnapshotJdbcRepository {
     }
 
 
-    public int snapshotCount(final UUID streamId) {
+    public long snapshotCount(final UUID streamId) {
 
         try (final Connection connection = getDataSource().getConnection();
              final PreparedStatement preparedStatement = connection.prepareStatement(SQL_SNAPSHOT_COUNT_BY_STREAM_ID)) {
@@ -35,7 +31,7 @@ public class SnapshotOpenEjbAwareJdbcRepository extends SnapshotJdbcRepository {
 
             try (final ResultSet resultSet = preparedStatement.executeQuery()) {
                 if (resultSet.next()) {
-                    return resultSet.getInt(1);
+                    return resultSet.getLong(1);
                 }
                 return 0;
             }
@@ -43,6 +39,4 @@ public class SnapshotOpenEjbAwareJdbcRepository extends SnapshotJdbcRepository {
             throw new JdbcRepositoryException(format(READING_STREAM_EXCEPTION, streamId), e);
         }
     }
-
-
 }

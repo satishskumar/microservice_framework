@@ -10,7 +10,6 @@ import uk.gov.justice.services.core.aggregate.AggregateService;
 import uk.gov.justice.services.core.annotation.Handles;
 import uk.gov.justice.services.core.annotation.ServiceComponent;
 import uk.gov.justice.services.core.enveloper.Enveloper;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
 import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 import uk.gov.justice.services.eventsourcing.source.core.EventSource;
 import uk.gov.justice.services.eventsourcing.source.core.EventStream;
@@ -46,7 +45,7 @@ public class AddRecipeCommandHandler {
     Enveloper enveloper;
 
     @Handles("cakeshop.add-recipe")
-    public void addRecipe(final JsonEnvelope command) throws EventStreamException, DuplicateSnapshotException, InvalidSequenceIdException {
+    public void addRecipe(final JsonEnvelope command) throws EventStreamException, InvalidSequenceIdException {
 
         LOGGER.info("=============> Inside add-recipe Command Handler. RecipeId: " + command.payloadAsJsonObject().getString(FIELD_RECIPE_ID));
 

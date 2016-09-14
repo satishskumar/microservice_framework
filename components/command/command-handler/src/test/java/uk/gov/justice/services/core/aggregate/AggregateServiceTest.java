@@ -10,6 +10,8 @@ import static uk.gov.justice.services.messaging.JsonObjectMetadata.metadataWithR
 
 import uk.gov.justice.domain.aggregate.Aggregate;
 import uk.gov.justice.domain.annotation.Event;
+import uk.gov.justice.domain.snapshot.AggregateChangeDetectedException;
+import uk.gov.justice.domain.snapshot.DefaultObjectInputStreamStrategy;
 import uk.gov.justice.services.common.converter.JsonObjectToObjectConverter;
 import uk.gov.justice.services.core.extension.EventFoundEvent;
 import uk.gov.justice.services.eventsourcing.source.core.EventStream;
@@ -65,8 +67,11 @@ public class AggregateServiceTest {
         when(jsonObjectToObjectConverter.convert(jsonObject, clazz)).thenReturn(event);
     }
 
+    @Mock
+    private DefaultObjectInputStreamStrategy streamStrategy;
+
     @Test
-    public void shouldAttemptStoringSnapshot() throws Exception {
+    public void shouldAttemptStoringSnapshot() throws AggregateChangeDetectedException {
 
         final UUID streamId = UUID.randomUUID();
         final long currentStreamVersion = 3l;
@@ -75,7 +80,8 @@ public class AggregateServiceTest {
 
         when(eventStream.getId()).thenReturn(streamId);
         when(eventStream.getCurrentVersion()).thenReturn(currentStreamVersion);
-        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class)).thenReturn(new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
+        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class, streamStrategy)).thenReturn(
+                new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
         when(eventStream.readFrom(snapshotVersion)).thenReturn(Stream.empty());
 
         aggregateService.get(eventStream, TestAggregate.class);
@@ -85,7 +91,7 @@ public class AggregateServiceTest {
 
 
     @Test
-    public void shouldReplayDeltaOfEventsOnAggregate() throws Exception {
+    public void shouldReplayDeltaOfEventsOnAggregate() throws AggregateChangeDetectedException {
         final UUID streamId = UUID.randomUUID();
         final long currentStreamVersion = 5l;
         final TestAggregate aggregate = new TestAggregate();
@@ -105,7 +111,8 @@ public class AggregateServiceTest {
 
         when(eventStream.getId()).thenReturn(streamId);
         when(eventStream.getCurrentVersion()).thenReturn(currentStreamVersion);
-        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class)).thenReturn(new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
+        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class, streamStrategy)).thenReturn(
+                new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate));
         when(eventStream.readFrom(snapshotVersion)).thenReturn(Stream.of(jsonEventA, jsonEventB, jsonEventC));
 
 
@@ -118,6 +125,48 @@ public class AggregateServiceTest {
         assertThat(aggregate.repliedEvents, hasItems(eventA, eventB, eventC));
     }
 
+    @Test
+    public void shouldRebuildAggregateOnModelChange() throws AggregateChangeDetectedException {
+        final UUID streamId = UUID.randomUUID();
+        final long currentStreamVersion = 3l;
+        final TestAggregate aggregate = new TestAggregate();
+        final long snapshotVersion = 1l;
+
+        final JsonEnvelope jsonEventA = envelope().with(metadataWithRandomUUID("eventA")).withPayloadOf("value1", "name1").build();
+        final JsonEnvelope jsonEventB = envelope().with(metadataWithRandomUUID("eventB")).withPayloadOf("value2", "name1").build();
+        final JsonEnvelope jsonEventC = envelope().with(metadataWithRandomUUID("eventC")).withPayloadOf("value3", "name1").build();
+
+        registerEvent(EventA.class, "eventA");
+        registerEvent(EventB.class, "eventB");
+        registerEvent(EventC.class, "eventC");
+
+        final EventA eventA = new EventA();
+        final EventB eventB = new EventB();
+        final EventC eventC = new EventC();
+
+        when(eventStream.getId()).thenReturn(streamId);
+        when(eventStream.getCurrentVersion()).thenReturn(currentStreamVersion);
+        when(snapshotService.getLatestVersionedAggregate(streamId, TestAggregate.class, streamStrategy)).thenReturn(
+                new VersionedAggregate<TestAggregate>(snapshotVersion, aggregate)).thenThrow(new AggregateChangeDetectedException("Aggregate Change Detected"));
+        when(eventStream.readFrom(snapshotVersion)).thenReturn(Stream.empty());
+        when(eventStream.read()).thenReturn(Stream.of(jsonEventA, jsonEventB, jsonEventC));
+        when(snapshotService.getNewVersionedAggregate(TestAggregate.class)).thenReturn(
+                new VersionedAggregate<TestAggregate>(0l, aggregate));
+
+        aggregateService.get(eventStream, TestAggregate.class);
+
+        verify(snapshotService).attemptAggregateStore(streamId, currentStreamVersion, TestAggregate.class, aggregate, snapshotVersion);
+
+        when(jsonObjectToObjectConverter.convert(jsonEventA.payloadAsJsonObject(), EventA.class)).thenReturn(eventA);
+        when(jsonObjectToObjectConverter.convert(jsonEventB.payloadAsJsonObject(), EventB.class)).thenReturn(eventB);
+        when(jsonObjectToObjectConverter.convert(jsonEventC.payloadAsJsonObject(), EventC.class)).thenReturn(eventC);
+
+        aggregateService.get(eventStream, TestAggregate.class);
+
+        verify(snapshotService).getNewVersionedAggregate(TestAggregate.class);
+
+        assertThat(aggregate.repliedEvents, hasItems(eventA, eventB, eventC));
+    }
 
     @Event("eventA")
     public static class EventA {
@@ -134,7 +183,6 @@ public class AggregateServiceTest {
 
     }
 
-
     private class TestAggregate implements Aggregate {
         private static final long serialVersionUID = 42L;
 
@@ -146,5 +194,4 @@ public class AggregateServiceTest {
             return event;
         }
     }
-
 }

@@ -1,14 +1,16 @@
 package uk.gov.justice.domain.snapshot;
 
-import static org.apache.commons.lang.SerializationUtils.deserialize;
 import static org.apache.commons.lang.SerializationUtils.serialize;
 
 import uk.gov.justice.domain.aggregate.Aggregate;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
+import java.io.ObjectInputStream;
 import java.io.Serializable;
 import java.util.UUID;
 
-import org.apache.commons.lang.SerializationUtils;
+import org.apache.commons.lang.SerializationException;
 import org.apache.commons.lang.builder.EqualsBuilder;
 import org.apache.commons.lang.builder.HashCodeBuilder;
 
@@ -72,7 +74,16 @@ public class AggregateSnapshot<T extends Aggregate> implements Serializable {
                 .toHashCode();
     }
 
-    public T getAggregate() {
-        return getType().cast(deserialize(aggregateByteRepresentation));
+    public T getAggregate(final ObjectInputStreamStrategy streamStrategy) throws AggregateChangeDetectedException {
+        try {
+            ByteArrayInputStream bis = new ByteArrayInputStream(aggregateByteRepresentation);
+            ObjectInputStream ois = streamStrategy.objectInputStreamOf(bis);
+            Object object = ois.readObject();
+            ois.close();
+            return getType().cast(object);
+        } catch (SerializationException | ClassNotFoundException | IOException e) {
+            throw new AggregateChangeDetectedException(e.getLocalizedMessage());
+        }
     }
+
 }

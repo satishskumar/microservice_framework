@@ -2,9 +2,6 @@ package uk.gov.justice.services.eventsourcing.source.core.snapshot;
 
 import static org.junit.Assert.assertEquals;
 
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
-
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
@@ -28,9 +25,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldCreateAggregateSnapshotWhenDifferenceGreaterThanThreshold() throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
-
+    public void shouldCreateAggregateSnapshotWhenDifferenceGreaterThanThreshold() {
         long streamVersionId = 26l;
         long snapshotVersionId = 0l;
         boolean canBeCreated = snapshotStrategy.shouldCreateSnapshot(streamVersionId, snapshotVersionId);
@@ -39,9 +34,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldNotCreateAggregateSnapshotWhenDifferenceIsEqualToThreshold()
-            throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
+    public void shouldNotCreateAggregateSnapshotWhenDifferenceIsEqualToThreshold() {
 
         long streamVersionId = 25l;
         long snapshotVersionId = 0l;
@@ -51,9 +44,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldNotCreateAggregageSnapshotWhenDifferenceIsLessThanThreshold()
-            throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
+    public void shouldNotCreateAggregageSnapshotWhenDifferenceIsLessThanThreshold() {
 
         long streamVersionId = 24l;
         long snapshotVersionId = 0l;
@@ -63,9 +54,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldNotCreateAggregageSnapshotWhenDifferenceIsLessThanThresholdWhenSnapshotIsAlreadyAvailable()
-            throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
+    public void shouldNotCreateAggregageSnapshotWhenDifferenceIsLessThanThresholdWhenSnapshotIsAlreadyAvailable(){
 
         long streamVersionId = 51l;
         long snapshotVersionId = 25l;
@@ -75,9 +64,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldCreateAggregageSnapshotWhenDifferenceIsEqualToThresholdWhenSnapshotIsAlreadyAvailable()
-            throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
+    public void shouldCreateAggregageSnapshotWhenDifferenceIsEqualToThresholdWhenSnapshotIsAlreadyAvailable(){
 
         long streamVersionId = 50l;
         long snapshotVersionId = 25l;
@@ -87,9 +74,7 @@ public class DefaultSnapshotStrategyTest {
     }
 
     @Test
-    public void shouldCreateAggregageSnapshotWhenDifferenceIsLessThanThresholdWhenSnapshotIsAlreadyAvailable()
-            throws
-            DuplicateSnapshotException, InvalidSequenceIdException, IllegalAccessException, InstantiationException {
+    public void shouldCreateAggregageSnapshotWhenDifferenceIsLessThanThresholdWhenSnapshotIsAlreadyAvailable() {
 
         long streamVersionId = 49l;
         long snapshotVersionId = 25l;

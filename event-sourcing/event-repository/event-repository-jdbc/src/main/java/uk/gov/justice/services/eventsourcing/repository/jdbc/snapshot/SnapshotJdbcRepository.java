@@ -6,8 +6,6 @@ import static java.lang.String.format;
 import uk.gov.justice.domain.aggregate.Aggregate;
 import uk.gov.justice.domain.snapshot.AggregateSnapshot;
 import uk.gov.justice.services.eventsourcing.repository.core.SnapshotRepository;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.DuplicateSnapshotException;
-import uk.gov.justice.services.eventsourcing.repository.core.exception.InvalidSequenceIdException;
 import uk.gov.justice.services.jdbc.persistence.AbstractJdbcRepository;
 import uk.gov.justice.services.jdbc.persistence.JdbcRepositoryException;
 
@@ -30,17 +28,41 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
      * Column Names
      */
     static final String COL_STREAM_ID = "stream_id";
+    /**
+     * The Col version id.
+     */
     static final String COL_VERSION_ID = "version_id";
+    /**
+     * The Col type.
+     */
     static final String COL_TYPE = "type";
+    /**
+     * The Col aggregate.
+     */
     static final String COL_AGGREGATE = "aggregate";
 
     /**
      * Statements
      */
     static final String SQL_FIND_LATEST_BY_STREAM_ID = "SELECT * FROM snapshot WHERE stream_id=? ORDER BY version_id DESC";
+    /**
+     * The Sql find earlier snapshot by stream id and version id.
+     */
     static final String SQL_FIND_EARLIER_SNAPSHOT_BY_STREAM_ID_AND_VERSION_ID = "select * from snapshot where version_id = (SELECT version_id FROM snapshot WHERE stream_id=? and version_id < ? ORDER BY version_id DESC LIMIT 1)";
 
+    /**
+     * The Sql insert event log.
+     */
     static final String SQL_INSERT_EVENT_LOG = "INSERT INTO snapshot (stream_id, version_id, type, aggregate ) VALUES(?, ?, ?, ?)";
+
+    /**
+     * The Delete all snapshots for stream id and class.
+     */
+    static final String DELETE_ALL_SNAPSHOTS_FOR_STREAM_ID_AND_CLASS = "delete from snapshot where stream_id =? and  type=?";
+
+    /**
+     * The constant READING_STREAM_EXCEPTION.
+     */
 
     protected static final String READING_STREAM_EXCEPTION = "Exception while reading stream %s";
     private static final String JNDI_DS_EVENT_STORE_PATTERN = "java:/app/%s/DS.eventstore";
@@ -50,15 +72,9 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
      * Insert the given aggregateSnapshot into Snapshot log.
      *
      * @param aggregateSnapshot the event to insert
-     * @throws DuplicateSnapshotException if the version already exists or is null.
      */
     @Override
-    public void storeSnapshot(final AggregateSnapshot aggregateSnapshot)
-            throws DuplicateSnapshotException, InvalidSequenceIdException {
-
-        if (aggregateSnapshot.getVersionId() == null) {
-            throw new InvalidSequenceIdException(format("Version is null for stream %s", aggregateSnapshot.getStreamId()));
-        }
+    public void storeSnapshot(final AggregateSnapshot aggregateSnapshot) {
 
         try (Connection connection = getDataSource().getConnection();
              PreparedStatement ps = connection.prepareStatement(SQL_INSERT_EVENT_LOG)) {
@@ -95,21 +111,25 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
     }
 
     @Override
-    public Optional<AggregateSnapshot> getEarlierSnapshot(UUID streamId, long versionId) {
-
-        try (final Connection connection = getDataSource().getConnection();
-             final PreparedStatement preparedStatement = connection.prepareStatement(SQL_FIND_EARLIER_SNAPSHOT_BY_STREAM_ID_AND_VERSION_ID)) {
-
-            preparedStatement.setObject(1, streamId);
-            preparedStatement.setLong(2, versionId);
-
-            return extractResults(preparedStatement);
-
+    public <T extends Aggregate> void removeAllSnapshots(final UUID streamId, final Class<T> clazz) {
+        try (Connection connection = getDataSource().getConnection();
+             PreparedStatement ps = connection.prepareStatement(DELETE_ALL_SNAPSHOTS_FOR_STREAM_ID_AND_CLASS)) {
+            ps.setObject(1, streamId);
+            ps.setObject(2, clazz);
+            ps.executeUpdate();
         } catch (SQLException | NamingException e) {
-            throw new JdbcRepositoryException(format(READING_STREAM_EXCEPTION, streamId), e);
+            throw new JdbcRepositoryException(format("Exception while removing snapshots %s of stream %s",
+                    clazz, streamId), e);
         }
     }
 
+    /**
+     * Extract results optional.
+     *
+     * @param preparedStatement the prepared statement
+     * @return the optional
+     * @throws SQLException the sql exception
+     */
     protected Optional<AggregateSnapshot> extractResults(final PreparedStatement preparedStatement) throws SQLException {
 
         try (final ResultSet resultSet = preparedStatement.executeQuery()) {
@@ -134,6 +154,4 @@ public class SnapshotJdbcRepository extends AbstractJdbcRepository
     protected String jndiName() throws NamingException {
         return format(JNDI_DS_EVENT_STORE_PATTERN, warFileName());
     }
-
-
 }
