@@ -1,4 +1,4 @@
-package uk.gov.justice.services.core.configuration;
+package uk.gov.justice.services.common.configuration;
 
 import static java.lang.annotation.RetentionPolicy.RUNTIME;
 
